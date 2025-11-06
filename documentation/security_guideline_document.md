@@ -1,116 +1,96 @@
-# Security Guidelines for codeguide-starter
+# codeguide-web-translator Security Guidelines
 
-This document defines mandatory security principles and implementation best practices tailored to the **codeguide-starter** repository. It aligns with Security-by-Design, Least Privilege, Defense-in-Depth, and other core security tenets. All sections reference specific areas of the codebase (e.g., `/app/api/auth/route.ts`, CSS files, environment configuration) to ensure practical guidance.
+## 1. Purpose and Scope
+This document defines security best practices and controls tailored for the **codeguide-web-translator** boilerplate. It ensures that the translator feature—built on Next.js 15, TypeScript, Drizzle ORM, PostgreSQL, and the Vercel AI SDK—adheres to robust security principles throughout design, implementation, and deployment.
 
----
+## 2. Core Security Principles
+  - **Security by Design**: Embed security from the earliest design decisions through testing and release.  
+  - **Least Privilege**: Grant only the minimum permissions to each component (API routes, database users, external services).  
+  - **Defense in Depth**: Apply multiple overlapping controls (rate limiting, authentication, input validation).  
+  - **Fail Securely**: On errors, return generic messages without leaking internal details or stack traces.  
+  - **Secure Defaults**: Opt for the most restrictive configuration unless explicitly loosened.
 
-## 1. Security by Design
+## 3. Authentication & Access Control
+  - **Endpoint Protection**:  
+    • Use your existing `better-auth` flows or NextAuth to secure any translation history or dashboard endpoints.  
+    • Ensure every sensitive API route (e.g., `/api/translate`, `/api/history`) verifies the user’s session/token server-side.  
+  - **Session Management**:  
+    • Generate high-entropy session IDs and store them in encrypted, `HttpOnly`, `Secure`, `SameSite=Strict` cookies.  
+    • Enforce idle and absolute timeouts; provide a logout endpoint that invalidates the session.  
+  - **Role-Based Access Control (RBAC)**:  
+    • Define roles (e.g., `guest`, `user`, `admin`) and assign permissions for translation quotas, history viewing, or admin dashboards.  
+    • Validate roles on each API request before executing any business logic.
 
-• Embed security from day one: review threat models whenever adding new features (e.g., new API routes, data fetching).
-• Apply “secure defaults” in Next.js configuration (`next.config.js`), enabling strict mode and disabling debug flags in production builds.
-• Maintain a security checklist in your PR template to confirm that each change has been reviewed against this guideline.
+## 4. Input Handling & Processing
+  - **Prevent Injection**:  
+    • Use Drizzle ORM’s parameterized queries for all database interactions.  
+    • Never concatenate user input into SQL or shell commands.  
+  - **Sanitize & Validate**:  
+    • On `/api/translate`, validate request payloads (text length, source/target language codes against an allow-list).  
+    • For `.txt` uploads, check MIME type, file size limits, and strip unsupported control characters before processing.  
+  - **File Upload Security**:  
+    • Store any uploaded files (if persisted) outside the public webroot or in a dedicated object store (e.g., AWS S3 with private ACLs).  
+    • Scan uploads for malware when possible (e.g., via ClamAV).  
+  - **Output Encoding**:  
+    • When reflecting user-provided content in the UI, apply context-aware encoding to prevent XSS.  
+    • Use React’s built-in escaping rather than `dangerouslySetInnerHTML` unless absolutely necessary and sanitized.
 
----
+## 5. Data Protection & Privacy
+  - **Secrets Management**:  
+    • Store `OPENAI_API_KEY`, database credentials, and other secrets in environment variables or a secrets manager (Vault, AWS Secrets Manager).  
+    • Never commit secrets to Git or expose them to the client bundle.  
+  - **Encryption**:  
+    • Enforce TLS 1.2+ on all endpoints (Next.js `redirect` to HTTPS).  
+    • Encrypt sensitive data at rest in the database (e.g., user PII) using column-level encryption if required.  
+  - **Data Minimization**:  
+    • Return only necessary fields in API responses (avoid dumping full user or translation records).  
+    • Purge or anonymize translation history older than a configured retention period to comply with privacy regulations.
 
-## 2. Authentication & Access Control
+## 6. API & Service Security
+  - **Rate Limiting & Throttling**:  
+    • Integrate Upstash/`@upstash/ratelimit` in `/app/api/translate/route.ts`.  
+    • Enforce per-IP or per-user limits (e.g., 5 requests/minute) to prevent abuse and control OpenAI costs.  
+  - **CORS Policy**:  
+    • Configure Next.js `headers()` to allow only trusted origins (your frontend domain).  
+    • Disallow wildcard (`*`) in production.  
+  - **API Versioning**:  
+    • Namespace translation routes under `/api/v1/translate` to allow safe evolution.  
+  - **Correct HTTP Methods**:  
+    • Use `POST` for `/api/translate`, `GET` for retrieving history, `DELETE` for clearing user data, etc.
 
-### 2.1 Password Storage
-- Use **bcrypt** (or Argon2) with a per-user salt to hash passwords in `/app/api/auth/route.ts`.
-- Enforce a strong password policy on both client and server: minimum 12 characters, mixed case, numbers, and symbols.
+## 7. Web Application Security Hygiene
+  - **CSRF Protection**:  
+    • For any state-changing POST/DELETE requests from the browser, implement CSRF tokens via NextAuth’s built-in mechanism or `csrf()` from `next-auth`.  
+  - **Security Headers**:  
+    • `Content-Security-Policy`: restrict scripts/styles to self and approved CDNs.  
+    • `Strict-Transport-Security`: max-age=63072000; includeSubDomains; preload.  
+    • `X-Content-Type-Options`: nosniff.  
+    • `X-Frame-Options`: DENY or use `frame-ancestors` in CSP.  
+    • `Referrer-Policy`: no-referrer-when-downgrade or strict-origin.
+  - **Cookie Settings**:  
+    • All session or refresh cookies set with `Secure`, `HttpOnly`, and `SameSite=Strict`.
 
-### 2.2 Session Management
-- Issue sessions via Secure, HttpOnly, SameSite=strict cookies. Do **not** expose tokens to JavaScript.
-- Implement absolute and idle timeouts. For example, invalidate sessions after 30 minutes of inactivity.
-- Protect against session fixation by regenerating session IDs after authentication.
+## 8. Infrastructure & Configuration Management
+  - **Docker Hardening**:  
+    • Use minimal base images (e.g., `node:alpine`) and avoid running as `root`.  
+    • Scan images for vulnerabilities (e.g., `docker scan`).  
+  - **Environment Segregation**:  
+    • Separate dev, staging, and production credentials and databases.  
+    • Employ feature flags or environment-specific configs for sensitive features.  
+  - **Dependency Updates**:  
+    • Use lock files (`package-lock.json`) and automated tooling (Dependabot, Renovate) to track and apply security patches.  
+    • Periodically run SCA tools (e.g., npm audit, Snyk) to catch known CVEs.
 
-### 2.3 Brute-Force & Rate Limiting
-- Apply rate limiting at the API layer (e.g., using `express-rate-limit` or Next.js middleware) on `/api/auth` to throttle repeated login attempts.
-- Introduce exponential backoff or temporary lockout after N failed attempts.
+## 9. Testing & Monitoring
+  - **Automated Tests**:  
+    • Unit test input validation and file-parsing logic.  
+    • Integration test the `/api/translate` endpoint, including rate-limit triggers and error paths.  
+  - **Continuous Security Scans**:  
+    • Integrate SAST (ESLint with security plugins) and SCA in your CI pipeline.  
+    • Run dynamic tests (e.g., OWASP ZAP) against deployed staging environments.  
+  - **Logging & Alerting**:  
+    • Log authentication failures, rate-limit breaches, and OpenAI API errors to a centralized system (e.g., Datadog, Logstash).  
+    • Monitor for anomalous patterns (spikes in failed translations or API errors).
 
-### 2.4 Role-Based Access Control (Future)
-- Define user roles in your database model (e.g., `role = 'user' | 'admin'`).
-- Enforce server-side authorization checks in every protected route (e.g., in `dashboard/layout.tsx` loader functions).
-
----
-
-## 3. Input Handling & Processing
-
-### 3.1 Validate & Sanitize All Inputs
-- On **client** (`sign-up/page.tsx`, `sign-in/page.tsx`): perform basic format checks (email regex, password length).
-- On **server** (`/app/api/auth/route.ts`): re-validate inputs with a schema validator (e.g., `zod`, `Joi`).
-- Reject or sanitize any unexpected fields to prevent injection attacks.
-
-### 3.2 Prevent Injection
-- If you introduce a database later, always use parameterized queries or an ORM (e.g., Prisma) rather than string concatenation.
-- Avoid dynamic `eval()` or template rendering with unsanitized user input.
-
-### 3.3 Safe Redirects
-- When redirecting after login or logout, validate the target against an allow-list to prevent open redirects.
-
----
-
-## 4. Data Protection & Privacy
-
-### 4.1 Encryption & Secrets
-- Enforce HTTPS/TLS 1.2+ for all front-end ↔ back-end communications.
-- Never commit secrets—use environment variables and a secrets manager (e.g., AWS Secrets Manager, Vault).
-
-### 4.2 Sensitive Data Handling
-- Do ​not​ log raw passwords, tokens, or PII in server logs. Mask or redact any user identifiers.
-- If storing PII in `data.json` or a future database, classify it and apply data retention policies.
-
----
-
-## 5. API & Service Security
-
-### 5.1 HTTPS Enforcement
-- In production, redirect all HTTP traffic to HTTPS (e.g., via Vercel’s redirect rules or custom middleware).
-
-### 5.2 CORS
-- Configure `next.config.js` or API middleware to allow **only** your front-end origin (e.g., `https://your-domain.com`).
-
-### 5.3 API Versioning & Minimal Exposure
-- Version your API routes (e.g., `/api/v1/auth`) to handle future changes without breaking clients.
-- Return only necessary fields in JSON responses; avoid leaking internal server paths or stack traces.
-
----
-
-## 6. Web Application Security Hygiene
-
-### 6.1 CSRF Protection
-- Use anti-CSRF tokens for any state-changing API calls. Integrate Next.js CSRF middleware or implement synchronizer tokens stored in cookies.
-
-### 6.2 Security Headers
-- In `next.config.js` (or a custom server), add these headers:
-  - `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
-  - `X-Content-Type-Options: nosniff`
-  - `X-Frame-Options: DENY`
-  - `Referrer-Policy: no-referrer-when-downgrade`
-  - `Content-Security-Policy`: restrict script/style/src to self and trusted CDNs.
-
-### 6.3 Secure Cookies
-- Set `Secure`, `HttpOnly`, `SameSite=Strict` on all cookies. Avoid storing sensitive data in `localStorage`.
-
-### 6.4 Prevent XSS
-- Escape or encode all user-supplied data in React templates. Avoid `dangerouslySetInnerHTML` unless content is sanitized.
-
----
-
-## 7. Infrastructure & Configuration Management
-
-- Harden your hosting environment (e.g., Vercel/Netlify) by disabling unnecessary endpoints (GraphQL/GraphiQL playgrounds in production).
-- Rotate secrets and API keys regularly via your secrets manager.
-- Maintain minimal privileges: e.g., database accounts should only have read/write on required tables.
-- Keep Node.js, Next.js, and all system packages up to date.
-
----
-
-## 8. Dependency Management
-
-- Commit and maintain `package-lock.json` to guarantee reproducible builds.
-- Integrate a vulnerability scanner (e.g., GitHub Dependabot, Snyk) to monitor and alert on CVEs in dependencies.
-- Trim unused packages; each added library increases the attack surface.
-
----
-
-Adherence to these guidelines will ensure that **codeguide-starter** remains secure, maintainable, and resilient as it evolves. Regularly review and update this document to reflect new threats and best practices.
+## 10. Conclusion
+By following these guidelines, the **codeguide-web-translator** boilerplate will remain secure, compliant, and resilient as you implement your OpenAI-powered translation features. Prioritize security in every pull request and continuously review and refine controls as your application evolves.

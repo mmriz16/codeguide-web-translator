@@ -1,14 +1,17 @@
 flowchart TD
-  Start[Landing Page]
-  SignUpPage[Sign Up Page]
-  SignInPage[Sign In Page]
-  AuthAPI[Authentication API Endpoint]
-  DashboardPage[Dashboard Page]
-  Start -->|Select Sign Up| SignUpPage
-  Start -->|Select Sign In| SignInPage
-  SignUpPage -->|Submit Credentials| AuthAPI
-  SignInPage -->|Submit Credentials| AuthAPI
-  AuthAPI -->|Success| DashboardPage
-  AuthAPI -->|Error| SignUpPage
-  AuthAPI -->|Error| SignInPage
-  DashboardPage -->|Click Logout| Start
+    A[Start] --> B[Load Translator Page]
+    B --> C[Enter Text or Upload File]
+    C --> D[Select Source and Target Languages]
+    D --> E[Click Translate Button]
+    E --> F[Show Progress Indicator]
+    F --> G[Send Request to Translate API]
+    G --> H[Check Rate Limit]
+    H --> I[Call OpenAI API]
+    I --> J[Receive Translation Response]
+    J --> K[Return Translated Text]
+    K --> L[Hide Progress Indicator]
+    L --> M[Display Translated Text]
+    M --> N[Enable Download Button]
+    N --> O[Click Download Button]
+    O --> P[Trigger File Download]
+    P --> Q[End]
